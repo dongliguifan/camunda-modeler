@@ -7,5 +7,6 @@
 
 module.exports = {
   name: 'test',
-  style: './style.css'
+  style: './style.css',
+  menu: './menu'
 };
