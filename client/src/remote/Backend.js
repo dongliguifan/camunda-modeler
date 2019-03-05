@@ -77,6 +77,10 @@ export default class Backend {
     this.send('context-menu:open', type, options);
   }
 
+  sendTogglePlugins() {
+    this.send('toggle-plugins');
+  }
+
   sendMenuUpdate = (state = {}) => {
     this.send('menu:update', state);
   }

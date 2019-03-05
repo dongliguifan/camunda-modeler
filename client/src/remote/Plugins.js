@@ -62,7 +62,7 @@ export default class Plugins {
    * @returns {Array}
    */
   get(type) {
-    return this._getAll()
+    return this.getAllRegistered()
       .filter(registration => registration.type === type)
       .map(registration => registration.plugin);
   }
@@ -111,8 +111,12 @@ export default class Plugins {
    *
    * @returns {Array}
    */
-  _getAll() {
+  getAllRegistered() {
     return window.plugins || [];
+  }
+
+  getAll() {
+    return this.app.plugins.getAll();
   }
 
 }

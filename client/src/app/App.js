@@ -28,6 +28,8 @@ import {
 
 import Toolbar from './Toolbar';
 
+import Flags, { DISABLE_PLUGINS } from '../util/Flags';
+
 import Log from './Log';
 
 
@@ -879,6 +881,12 @@ export class App extends PureComponent {
     if (typeof onReady === 'function') {
       onReady();
     }
+
+    if (Flags.get(DISABLE_PLUGINS) && Flags.get('relaunch')) {
+      this.logEntry('Plugins are temporarily disabled.', 'info');
+
+      this.logEntry('Enable plug-ins (restarts the app)', 'info', this.togglePlugins);
+    }
   }
 
   componentDidUpdate(prevProps, prevState) {
@@ -957,7 +965,7 @@ export class App extends PureComponent {
     });
   }
 
-  handleError(error, ...args) {
+  handleError = (error, ...args) => {
     const {
       onError
     } = this.props;
@@ -971,6 +979,12 @@ export class App extends PureComponent {
     }
 
     this.logEntry(message, 'error');
+
+    if (this.hasPlugins()) {
+      this.logEntry('This error may be the result of a plug-in compatibility issue', 'info');
+
+      this.logEntry('Disable plug-ins (restarts the app)', 'info', this.togglePlugins);
+    }
   }
 
   getGlobal(name) {
@@ -983,6 +997,14 @@ export class App extends PureComponent {
     }
 
     throw new Error(`global <${name}> not exposed`);
+  }
+
+  hasPlugins() {
+    return this.getGlobal('plugins').getAll().length;
+  }
+
+  togglePlugins = () => {
+    this.getGlobal('backend').sendTogglePlugins();
   }
 
   handleWarning(warning, ...args) {
@@ -1006,21 +1028,25 @@ export class App extends PureComponent {
    * @param {String} message - Message to be logged.
    * @param {String} category - Category of message.
    */
-  logEntry(message, category) {
-    const {
-      logEntries
-    } = this.state;
-
+  logEntry(message, category, action) {
     this.toggleLog(true);
 
-    this.setState({
-      logEntries: [
-        ...logEntries,
-        {
-          category,
-          message
-        }
-      ]
+    this.setState((state) => {
+
+      const {
+        logEntries
+      } = state;
+
+      return {
+        logEntries: [
+          ...logEntries,
+          {
+            category,
+            message,
+            action
+          }
+        ]
+      };
     });
   }
 
@@ -1236,7 +1262,7 @@ export class App extends PureComponent {
     return this.getGlobal('dialog').show(options);
   }
 
-  triggerAction = (action, options) => {
+  triggerAction = failSafe((action, options) => {
 
     const {
       activeTab
@@ -1360,7 +1386,7 @@ export class App extends PureComponent {
     const tab = this.tabRef.current;
 
     return tab.triggerAction(action, options);
-  }
+  }, this.handleError)
 
   openExternalUrl(options) {
     this.getGlobal('backend').send('external:open-url', options);
@@ -1621,7 +1647,7 @@ export class App extends PureComponent {
           <ModalConductor
             currentModal={ this.state.currentModal }
             endpoints={ this.state.endpoints }
-            isMac={ this.getGlobal('isMac') }
+            getGlobal={ this.getGlobal }
             onClose={ this.closeModal }
             onDeploy={ this.handleDeploy }
             onDeployError={ this.handleDeployError }
@@ -1868,4 +1894,17 @@ function getExportFileDialogFilters(provider) {
   });
 
   return filters;
+}
+
+
+function failSafe(fn, errorHandler) {
+
+  return async (...args) => {
+
+    try {
+      return await fn(...args);
+    } catch (error) {
+      errorHandler(error);
+    }
+  };
 }
