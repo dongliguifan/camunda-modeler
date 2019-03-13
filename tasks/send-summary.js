@@ -10,9 +10,16 @@
 
 'use strict';
 
+const fs = require('fs');
+
+const path = require('path');
+
 const exec = require('execa').sync;
 
 const nodemailer = require('nodemailer');
+
+const { Diff2Html: diff2html } = require('diff2html');
+
 
 const {
   collectClientDependencies,
@@ -31,22 +38,57 @@ sendSummary().then(
 );
 
 async function sendSummary() {
-  const version = getVersion();
+  const { previousVersion, currentVersion } = getVersions();
+
+  console.log(`Sending summary for version ${currentVersion}`);
+
+  console.log('Generating summary...');
+
   const summary = await getSummary();
 
-  const message = getMessageBody(summary, version);
+  let message = getMessageBody(summary, currentVersion);
 
-  console.log(`Sending summary for version ${version}`);
-  console.log(message);
+  console.log('Generating diff...');
 
-  await sendEmail(`Camunda Modeler ${version} Third Party Summary`, message);
+  const diff = getDiff({
+    currentVersion,
+    previousVersion,
+    file: './THIRD_PARTY_NOTICES'
+  });
+
+  let html;
+
+  if (diff) {
+    html = getHtmlFromDiff(diff);
+    console.log('Diff generated');
+
+    message += '\n\nChanges since last version can be found in the attachment.';
+  } else {
+    console.log('Diff could not be generated');
+  }
+
+  console.log('Sending email...');
+
+
+  await sendEmail(`Camunda Modeler ${currentVersion} Third Party Summary`, message, html);
 }
 
-function getVersion() {
-  return exec('git', [
+function getVersions() {
+  const currentVersion = exec('git', [
     'describe',
     '--abbrev=0'
   ]).stdout;
+
+  const previousVersion = exec('git', [
+    'describe',
+    '--abbrev=0',
+    `${currentVersion}^`
+  ]).stdout;
+
+  return {
+    currentVersion,
+    previousVersion
+  };
 }
 
 async function getSummary() {
@@ -71,7 +113,38 @@ Third party notices: https://github.com/camunda/camunda-modeler/blob/${version}/
   `;
 }
 
-function sendEmail(subject, body) {
+function getDiff({ currentVersion, previousVersion, file }) {
+  let diff;
+
+  try {
+    const previousFile = exec('git', ['show', `${previousVersion}:${file}`]).stdout;
+
+    // const diff = shell(`diff -c - ${path.join(process.cwd(), file)}`, { input: previousFile }).then(console.log).catch(() => console.error('demn'));
+
+    diff = exec('diff', ['-u', '-', `${path.join(process.cwd(), file)}`], { input: previousFile });
+
+    return diff;
+  } catch (error) {
+    diff = error.stdout;
+  }
+
+  return diff || null;
+}
+
+function getHtmlFromDiff(diff) {
+  const style = fs.readFileSync(require.resolve('diff2html/dist/diff2html.min.css'));
+
+  const diffHtml = diff2html.getPrettyHtml(diff, { inputFormat: 'diff', showFiles: true, matching: 'lines', outputFormat: 'side-by-side' });
+
+  const html = `
+  <style>${style}</style>
+  ${diffHtml}
+  `;
+
+  return html;
+}
+
+function sendEmail(subject, body, attachment) {
 
   const {
     EMAIL_HOST: host,
@@ -94,6 +167,15 @@ function sendEmail(subject, body) {
     subject,
     text: body,
   };
+
+  if (attachment) {
+    message.attachments = [
+      {
+        filename: 'changes_summary.html',
+        content: attachment
+      }
+    ];
+  }
 
   return transport.sendMail(message);
 }
